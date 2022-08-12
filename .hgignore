@@ -1,0 +1,7 @@
+^BUILD$
+^.mbed$
+^mbed-os$
+^soufflettes$
+^Adafruit_GFX$
+^mbedos_ssd1306_library$
+^SSD1308_128x64_I2C$
