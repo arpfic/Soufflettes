@@ -6,12 +6,13 @@
 #include "mbed.h"
 #include <math.h>
 #include "esc.h"
-#include "DSHOT150.h"
+//#include "DSHOT150.h"
 #include <cstdint>
-#include "SSD1306.h"
+#include "Adafruit_SSD1306.h" 
 
-#define PC_DEBUG_ON         1
-#define SSD1306_ON          0
+#define PC_DEBUG_ON         0
+#define SSD_I2C_ADDRESS     0x78
+#define SSD1306_ON          1
 #define MAX_BUFFER          129
 // Need to move into a config pot
 #define THROTTLE_MIN        0.1f
@@ -20,6 +21,18 @@
 #define POT_REFRESH_TIME    20ms
 #define NPA_REFRESH_TIME    200ms
 
+class I2CPreInit : public I2C
+{
+public:
+    I2CPreInit(PinName sda, PinName scl) : I2C(sda, scl)
+    {
+        frequency(1000000);
+        start();
+    };
+};
+I2CPreInit gI2C(PB_7, PB_6); // SDA , SCL
+Adafruit_SSD1306_I2c display(gI2C, PA_0);// Mystere
+
 AnalogIn  pot(PA_4);
 AnalogIn  npa(PA_5);
 AnalogIn  adc_temp(ADC_TEMP);
@@ -27,7 +40,6 @@ AnalogIn  adc_vref(ADC_VREF);
 //DSHOT150       soufflette(PE_9);
 DigitalOut led(PB_3);
 ESC       soufflette(PA_3);
-SSD1306   display(PB_7, PB_6);
 
 char buffer[MAX_BUFFER];
 
@@ -50,18 +62,10 @@ void npa_sample_timer() {
 }
 
 int main() {
-    display.setSpeed(SSD1306::Fast);
-    display.init();
-    display.turnOff();
-
-    ThisThread::sleep_for(500ms);
-    display.turnOn();
-
-    display.clearScreen();
-    display.setBrightness(255);
-
-    display.setCursor(1,1);
-    display.printf ("- SOUFFLETTE -");
+    display.clearDisplay();
+    display.setTextCursor(0,0);
+    display.printf ("-- SOUFFLETTE --");
+    display.display();
 
     update_info_screen("wait for init...");
 
@@ -80,7 +84,7 @@ int main() {
     NpasampleReady.attach(&npa_sample_timer, NPA_REFRESH_TIME);
 
     // ENTERING LOOP, BUT CLEAN BEFORE :)
-    display.clearScreen();
+    display.clearDisplay();
 
     while (1) {
         if (pot_sample_timer_ready){
@@ -102,10 +106,10 @@ int main() {
 }
 
 void update_info_screen(char* info){     
-    display.setCursor(7,0);
+    display.setTextCursor(0,55);
     display.printf(info);
     // DISPLAY REFRESH
-    display.refreshDisplay();
+    display.display();
 }
 
 void update_esc(float speed){       
@@ -118,31 +122,36 @@ void update_esc(float speed){
 
 void update_esc_screen(float esc_speed, int npa_value){     
     // ESC_SPEED REFRESH
-    display.clearScreenNotRefresh();
-    display.setCursor(1,1);
-    display.printf ("- SOUFFLETTE -");
-    display.setCursor(4,0);
-    sprintf(buffer, "TEMP      ");
+    display.clearDisplay();
+    display.setTextCursor(20,0);
+    display.printf ("-- SOUFFLETTE --");
+    display.setTextCursor(0,25);
+    sprintf(buffer, "TEMP            ");
     sprintf(buffer + strlen(buffer), "%05f", (adc_temp.read()*100));
     display.printf(buffer);
-    display.setCursor(5,0);
-    sprintf(buffer, "PRESSURE  ");
+    display.setTextCursor(0,35);
+    sprintf(buffer, "PRESSURE        ");
     sprintf(buffer + strlen(buffer), "%05d", npa_value);
     display.printf(buffer);
-    display.setCursor(6,0);
-    sprintf(buffer, "SPEED       ");
+    display.setTextCursor(0,45);
+    sprintf(buffer, "SPEED           ");
     sprintf(buffer + strlen(buffer), "%03d", (int)(esc_speed*100.0));
     display.printf(buffer);
     // DRAW LINE
-    uint8_t y = 58;
     float esc_x_line = 126.0*esc_speed;
-    display.drawLine(0, y,   (int)(esc_x_line), y,   SSD1306::Normal, false);
-    display.drawLine(0, y+1, (int)(esc_x_line), y+1, SSD1306::Normal, false);
-    display.drawLine(0, y+2, (int)(esc_x_line), y+2, SSD1306::Normal, false);
-    display.drawLine(0, y+3, (int)(esc_x_line), y+3, SSD1306::Normal, false);
-    display.drawLine(0, y+4, (int)(esc_x_line), y+4, SSD1306::Normal, false);    
+    display.drawFastHLine(0, 60, (int)(esc_x_line), 1);
+    display.drawFastHLine(0, 61, (int)(esc_x_line), 1);
+    display.drawFastHLine(0, 62, (int)(esc_x_line), 1);
+    display.drawFastHLine(0, 63, (int)(esc_x_line), 1);
+    //uint8_t y = 58;
+    
+    //display.drawLine(0, y,   (int)(esc_x_line), y,   SSD1306::Normal, false);
+    //display.drawLine(0, y+1, (int)(esc_x_line), y+1, SSD1306::Normal, false);
+    //display.drawLine(0, y+2, (int)(esc_x_line), y+2, SSD1306::Normal, false);
+    //display.drawLine(0, y+3, (int)(esc_x_line), y+3, SSD1306::Normal, false);
+    //display.drawLine(0, y+4, (int)(esc_x_line), y+4, SSD1306::Normal, false);    
     // DISPLAY REFRESH
-    display.refreshDisplay();
+    display.display();
 }
 
 void update_pc_debug(float esc_speed, int npa_value){

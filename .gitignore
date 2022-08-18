@@ -1,3 +1,6 @@
 BUILD/
 mbed-os/
 
+BUILD
+.mbed
+Adafruit_SSD1306
