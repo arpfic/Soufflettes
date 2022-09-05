@@ -12,7 +12,7 @@
 #include "SDP6x.h"
 
 #define AUTO_MODE                         0
-#define PC_DEBUG_ON                       0
+#define PC_DEBUG_ON                       1
 #define SSD_I2C_ADDRESS                   0x78
 #define SSD1306_ON                        1
 #define MAX_BUFFER                        129
@@ -27,6 +27,7 @@
 #define SDP_REFRESH_TIME                  50ms
 #define AUTO_MODE_REFRESH_TIME            5ms
 #define AUTO_MODE_REFRESH_STEPS           0.01f
+
 class I2CPreInit : public I2C
 {
 public:
@@ -36,6 +37,7 @@ public:
         start();
     };
 };
+
 I2CPreInit                                gI2C(PB_4, PA_7); // SDA , SCL
 Adafruit_SSD1306_I2c                      display(gI2C, PB_1);// Mystere
 ESC                                       soufflette(PA_3);
@@ -96,6 +98,8 @@ int main() {
     display.setTextCursor(0,0);
     display.printf ("-- SOUFFLETTE --");
     display.display();
+
+    led = 1;
 
     update_info_screen("wait for init...");
 
@@ -189,9 +193,9 @@ void update_esc_screen(float esc_speed, int npa_value, float sdp_value){
     sprintf(buffer, "TEMP            ");
     sprintf(buffer + strlen(buffer), "%05f", (adc_temp.read()*100));
     display.printf(buffer);
-    display.setTextCursor(0,35);
+    display.setTextCursor(0,25);
     sprintf(buffer, "DIFF PRESS      ");
-    sprintf(buffer + strlen(buffer), "%f", sdp_value);
+    sprintf(buffer + strlen(buffer), "%05f", sdp_value);
     display.printf(buffer);
     display.setTextCursor(0,35);
     sprintf(buffer, "PRESSURE        ");

@@ -77,7 +77,7 @@ float SDP6x::GetPressureDiff(void)
     return ((float)(res)/SCALEFACTOR);
   } else {
       //return ((float)(res)/SCALEFACTOR);
-      return -10000000;
+      return -1000;
   }
 }
 
