@@ -12,7 +12,8 @@
 #include "SDP6x.h"
 
 #define AUTO_MODE                         0
-#define PC_DEBUG_ON                       1
+#define AUTO_RESET                        0
+#define PC_DEBUG_ON                       0
 #define SSD_I2C_ADDRESS                   0x78
 #define SSD1306_ON                        1
 #define MAX_BUFFER                        129
@@ -26,7 +27,10 @@
 #define NPA_REFRESH_TIME                  20ms
 #define SDP_REFRESH_TIME                  50ms
 #define AUTO_MODE_REFRESH_TIME            5ms
-#define AUTO_MODE_REFRESH_STEPS           0.01f
+#define AUTO_MODE_REFRESH_STEPS           0.005f
+#define ESC_SPEED_STEP                    0.15f
+#define WARNING_PRESSURE                  11000
+#define WARNING_DIFF_PRESSURE             3.00f
 
 class I2CPreInit : public I2C
 {
@@ -63,12 +67,16 @@ bool pot_sample_timer_ready;
 bool npa_sample_timer_ready;
 bool sdp_sample_timer_ready;
 bool auto_mode_ready;
+int  warning_count_before_reset;
+float actual_speed;
 float auto_mode;
 
 void update_info_screen(char* info);
 void update_esc_screen(float esc_speed, int npa_value, float sdp_value);
+void init_esc(float speed);
 void update_esc(float speed);
 void update_pc_debug(float esc_speed, int npa_value, float sdp_value);
+bool test_esc(int npa_value, float sdp_value);
 
 void screen_refresh_timer() {
     screen_refresh_timer_ready = true;
@@ -90,6 +98,20 @@ void auto_mode_timer() {
     auto_mode_ready = true;
 }
 
+bool test_esc(int npa_value, float sdp_value) {
+    if(fabs(sdp_value) < WARNING_DIFF_PRESSURE && npa_value < WARNING_PRESSURE){
+#if AUTO_RESET == 1
+        if (warning_count_before_reset > 20)
+        NVIC_SystemReset();
+        warning_count_before_reset++;
+#endif
+        return false;
+    } else {
+        return true;
+        warning_count_before_reset = 0;
+    }
+}
+
 int main() {
     auto_mode = THROTTLE_START;
     memset(buffer, 0, sizeof(buffer));
@@ -106,17 +128,18 @@ int main() {
     float pot_value = 0.0f;
     float sdp_value = 0.0f;
     unsigned short npa_value = 0;
+    warning_count_before_reset = 0;
 
-    update_esc(0.0f);
+    init_esc(0.0f);
 
     ThisThread::sleep_for(2000ms);
     if (sdp.init()){
-        update_info_screen("sdp7xx on...");
+        update_info_screen("sdp7xx on....");
     }
     ThisThread::sleep_for(2000ms);
 
     update_info_screen("set to min speed");
-    update_esc(THROTTLE_START);
+    init_esc(THROTTLE_START);
     ThisThread::sleep_for(2000ms);
     update_info_screen("initialisaton ok");
 
@@ -176,10 +199,25 @@ void update_info_screen(char* info){
     display.display();
 }
 
-void update_esc(float speed){       
-    float speed_actual = speed * ESC_THROTTLE_MAX;
+void init_esc(float speed){       
+    float speed_real = speed * ESC_THROTTLE_MAX;
     // SET SPEED
-    soufflette.setThrottle(speed_actual);
+    soufflette.setThrottle(speed_real);
+    // ESC REFRESH
+    soufflette.pulse();
+}
+
+void update_esc(float speed){       
+    float speed_real = speed * ESC_THROTTLE_MAX;
+    if (fabs(actual_speed - speed_real) < ESC_SPEED_STEP) {
+        actual_speed = speed_real;
+    } else if (actual_speed < speed_real) {
+        actual_speed = actual_speed + ESC_SPEED_STEP;
+    } else {
+        actual_speed = actual_speed - ESC_SPEED_STEP;
+    }
+    // SET SPEED
+    soufflette.setThrottle(actual_speed);
     // ESC REFRESH
     soufflette.pulse();
 }
@@ -188,7 +226,11 @@ void update_esc_screen(float esc_speed, int npa_value, float sdp_value){
     // ESC_SPEED REFRESH
     display.clearDisplay();
     display.setTextCursor(20,0);
-    display.printf ("-- SOUFFLETTE --");
+    if(test_esc(npa_value, sdp_value)) {
+        display.printf ("-- SOUFFLETTE --");
+    } else {
+        display.printf ("WARN: ESC OFF ??");        
+    }
     display.setTextCursor(0,15);
     sprintf(buffer, "TEMP            ");
     sprintf(buffer + strlen(buffer), "%05f", (adc_temp.read()*100));
@@ -206,7 +248,7 @@ void update_esc_screen(float esc_speed, int npa_value, float sdp_value){
     sprintf(buffer + strlen(buffer), "%03d", (int)(esc_speed*100.0));
     display.printf(buffer);
     // DRAW LINE
-    float esc_x_line = 126.0*esc_speed;
+    float esc_x_line = (126.0*actual_speed)/ESC_THROTTLE_MAX;
     display.drawFastHLine(0, 60, (int)(esc_x_line), 1);
     display.drawFastHLine(0, 61, (int)(esc_x_line), 1);
     display.drawFastHLine(0, 62, (int)(esc_x_line), 1);
