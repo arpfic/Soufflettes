@@ -98,7 +98,7 @@ bool SDP6x::readSensor(char command, uint16_t* res)
     
     // Let's read it back
     // Waiting ???
-    ThisThread::sleep_for(50ms);
+    ThisThread::sleep_for(50);
     // Go !
     i2c.read(address << 1, data, 3);
 
