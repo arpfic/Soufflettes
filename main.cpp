@@ -1,56 +1,5 @@
-#include "DigitalIn.h"
-#include "DigitalOut.h"
-#include "PinNames.h"
-#include "PwmOut.h"
-#include "Ticker.h"
 #include "mbed.h"
-#include <math.h>
-#include "esc.h"
-#include "MIDIMessage.h"
-//#include "DSHOT150.h"
-#include <cstdint>
-#include "Adafruit_SSD1306.h" 
-#include "SDP6x.h"
-
-#define AUTO_MODE                         0
-#define AUTO_RESET                        0
-#define PC_DEBUG_ON                       0
-#define SSD_I2C_ADDRESS                   0x78
-#define SSD1306_ON                        1
-#define MAX_BUFFER                        129
-// Need to move into a config pot
-#define THROTTLE_MIN                      0.15f
-#define ESC_THROTTLE_MAX                  0.6f
-#define THROTTLE_START                    0.5f
-#define SCREEN_REFRESH_TIME               0.1f //sec
-#define POT_REFRESH_TIME                  0.01f
-#define POT_MODE_REFRESH_STEPS            0.04f
-#define NPA_REFRESH_TIME                  0.02f
-#define SDP_REFRESH_TIME                  0.05f
-#define AUTO_MODE_REFRESH_TIME            0.005f
-#define AUTO_MODE_REFRESH_STEPS           0.005f
-#define ESC_SPEED_STEP                    0.15f
-#define WARNING_PRESSURE                  11000
-#define WARNING_DIFF_PRESSURE             3.00f
-
-/* -----------------------------------------------------------------------------
- * MIDI stuf
- */
-#define MIDI_UART_TX                            PA_9
-#define MIDI_UART_RX                            PA_10
-#define MIDIMAIL_SIZE                           64
-#define MIDI_MAX_MSG_LENGTH                     4 // Max message size. SysEx can be up to 65536.
-#define CONT_CTRL                               176
-
-class I2CPreInit : public I2C
-{
-public:
-    I2CPreInit(PinName sda, PinName scl) : I2C(sda, scl)
-    {
-        frequency(1000000);
-        start();
-    };
-};
+#include "main.h"
 
 I2CPreInit                                gI2C(PB_4, PA_7); // SDA , SCL
 Adafruit_SSD1306_I2c                      display(gI2C, PB_1);// Mystere
@@ -65,7 +14,16 @@ AnalogIn                                  adc_vref(ADC_VREF);
 //DSHOT150                                  soufflette(PE_9);
 DigitalOut                                led(PB_3);
 
-char buffer[MAX_BUFFER];
+// GLOBAL VARIABLES
+/* ========================================================================= */
+
+// NVSTORE -----------------------
+int rc;
+uint16_t nvstore_actual_len_bytes = 0;
+// Values read or written by NVStore need to be aligned to a uint32_t address (even if their sizes
+// aren't)
+uint32_t nvstore_midi_value = 0;
+//--------------------------------
 
 Ticker ScreenRefreshReady;
 Ticker PotsampleReady;
@@ -80,10 +38,13 @@ bool auto_mode_ready;
 int  warning_count_before_reset;
 float actual_speed;
 float auto_mode;
+char buffer[MAX_BUFFER];
+
 // MIDI Serial & Thread and Ticker for working with different packet lengths
 static RawSerial midi_din(MIDI_UART_TX, MIDI_UART_RX);
 Thread midiTask;
 
+// MIDI --------------------------
 /* Mailbox of MIDI Packets */
 typedef struct {
     uint8_t    midiPacket[MIDI_MAX_MSG_LENGTH]; /* AD result of measured voltage */
@@ -93,25 +54,14 @@ Mail<midiPacket_t, MIDIMAIL_SIZE>  rx_midiPacket_box;
 midiPacket_t                       *rx_midi_outbox;
 int                                packetbox_full = 0;
 int                                rx_midi_Statusbyte = 0;
-
-// MIDI variables
-volatile int            rx_idx = 0;
-uint8_t                 rx_buffer[MIDI_MAX_MSG_LENGTH + 1];
-
-void update_info_screen(char* info);
-void update_esc_screen(float esc_speed, int npa_value, float sdp_value);
-void init_esc(float speed);
-void update_esc(float speed);
-void update_pc_debug(float esc_speed, int npa_value, float sdp_value);
-bool test_esc(int npa_value, float sdp_value);
-// Callback for MIDI RX
-void on_rx_interrupt();
-// Regrouping MIDI RX task in a Thread
-void midi_task();
-void midi_send_contctrl(char cc_number, char value);
 /* -- debug v2*/
 int debug_midicount = 0;
+// other
+volatile int            rx_idx = 0;
+uint8_t                 rx_buffer[MIDI_MAX_MSG_LENGTH + 1];
+//--------------------------------
 
+// MAIN FUNCTIONS
 /* ========================================================================= */
 void on_rx_interrupt() {
     uint8_t c;
@@ -307,6 +257,48 @@ bool test_esc(int npa_value, float sdp_value) {
 }
 
 int main() {
+    /* GET NVSTORE INSTANCE
+     * NVStore is a sigleton, get its instance
+     */
+    NVStore &nvstore = NVStore::get_instance();
+    rc = nvstore.init();
+    if(PC_DEBUG_ON == 1) {
+        printf("Init NVStore. ");
+        print_return_code(rc, NVSTORE_SUCCESS);
+
+        // Show NVStore size, maximum number of keys and area addresses and sizes
+        printf("NVStore size is %d.\n", nvstore.size());
+        printf("NVStore max number of keys is %d (out of %d possible ones in this flash configuration).\n",
+                nvstore.get_max_keys(), nvstore.get_max_possible_keys());
+        printf("NVStore areas:\n");
+        for (uint8_t area = 0; area < NVSTORE_NUM_AREAS; area++) {
+            uint32_t area_address;
+            size_t area_size;
+            nvstore.get_area_params(area, area_address, area_size);
+            printf("Area %d: address 0x%08lx, size %d (0x%x).\n", area, area_address, area_size, area_size);
+        }
+    }
+
+    /* Get the nvstore_midi_value of the MIDI CHAN
+     * or set it.
+     */
+    rc = nvstore.get(NVSTORE_MIDI_CHAN_KEY, sizeof(nvstore_midi_value), &nvstore_midi_value, nvstore_actual_len_bytes);
+    
+    // First time we have to set to default chan
+    if (rc == NVSTORE_SUCCESS && (nvstore_midi_value < 0 || nvstore_midi_value > 16)) {
+        nvstore_midi_value = 1;
+        rc = nvstore.set(NVSTORE_MIDI_CHAN_KEY, sizeof(nvstore_midi_value), &nvstore_midi_value);
+        if(PC_DEBUG_ON == 1) {
+            printf("Set key %d to nvstore_midi_value %ld. ", NVSTORE_MIDI_CHAN_KEY, nvstore_midi_value);
+            print_return_code(rc, NVSTORE_SUCCESS);
+        }
+    }
+
+    if(PC_DEBUG_ON == 1) {
+        printf("Get MIDI CHAN on key %d. nvstore_midi_value is %ld. ", NVSTORE_MIDI_CHAN_KEY, nvstore_midi_value);
+        print_return_code(rc, NVSTORE_SUCCESS);
+    }
+
     // Launch MIDI stuf
     midiTask.start(midi_task);
     midiTask.set_priority(osPriorityAboveNormal2);

@@ -4,7 +4,9 @@
             "target.printf_lib": "minimal-printf",
             "platform.minimal-printf-enable-floating-point": true,
             "platform.minimal-printf-set-floating-point-max-decimals": 2,
-            "platform.stdio-baud-rate": 115200
+            "platform.stdio-baud-rate": 115200,
+            "platform.default-serial-baud-rate": 115200,
+            "platform.stdio-convert-newlines": 1
         }
     }
 }
