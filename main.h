@@ -47,6 +47,10 @@
 #define CONT_CTRL                         176
 #define NVSTORE_MIDI_CHAN_KEY             1
 #define NVSTORE_MIDI_CHAN_FIRST_STORE     1
+#define MIDISEND_REFRESH_TIME             0.25f
+#define MIDISEND_CC_SPEED                 3
+#define MIDISEND_CC_PRESSURE              4
+#define MIDISEND_CC_VELO                  5
 
 void update_info_screen(char* info);
 void update_esc_screen(float esc_speed, int npa_value, float sdp_value);
@@ -63,7 +67,7 @@ void pb_hit_OUT_interrupt ();
 // MIDI Serial & Thread and Ticker for working with different packet lengths
 static RawSerial midi_din(MIDI_UART_TX, MIDI_UART_RX, 61250);
 void midi_task();
-void midi_send_contctrl(char cc_number, char value);
+void midi_send_ctrlchan(char cc_number, char value);
 Thread midiTask;
 
 // MIDI --------------------------

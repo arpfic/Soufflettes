@@ -32,13 +32,16 @@ Ticker PotsampleReady;
 Ticker NpasampleReady;
 Ticker SdpsampleReady;
 Ticker AutoModeReady;
-Timer PbInterruptReady;
+Ticker MidiSendSpeed;
+
+Timer  PbInterruptReady;
 
 bool screen_refresh_timer_ready;
 bool pot_sample_timer_ready;
 bool npa_sample_timer_ready;
 bool sdp_sample_timer_ready;
 bool auto_mode_ready;
+bool midi_send_speed_ready;
 bool set_auto_mode;
 int  warning_count_before_reset;
 float actual_speed;
@@ -192,7 +195,7 @@ void midi_task() {
     }
 }
 
-void midi_send_contctrl(char cc_number, char value) {
+void midi_send_ctrlchan(char cc_number, char value) {
     midi_din.putc(CONT_CTRL);
     midi_din.putc(cc_number);
     midi_din.putc(value);
@@ -216,6 +219,10 @@ void sdp_sample_timer() {
 
 void auto_mode_timer() {
     auto_mode_ready = true;
+}
+
+void midi_send_speed(){
+    midi_send_speed_ready = true;
 }
 
 void pb_hit_IN_interrupt (void) {
@@ -330,7 +337,8 @@ int main() {
     PotsampleReady.attach(&pot_sample_timer, POT_REFRESH_TIME);
     NpasampleReady.attach(&npa_sample_timer, NPA_REFRESH_TIME);
     SdpsampleReady.attach(&sdp_sample_timer, SDP_REFRESH_TIME);
-    AutoModeReady.attach(&auto_mode_timer, AUTO_MODE_REFRESH_TIME);
+    AutoModeReady.attach(&auto_mode_timer,   AUTO_MODE_REFRESH_TIME);
+    MidiSendSpeed.attach(&midi_send_speed,   MIDISEND_REFRESH_TIME);
 
     push_button.rise(&pb_hit_IN_interrupt);
     push_button.fall(&pb_hit_OUT_interrupt);
@@ -373,6 +381,19 @@ int main() {
                 update_esc(auto_mode);
             }
             auto_mode_ready = false;
+        }
+        if (midi_send_speed_ready){
+            if (actual_speed < 1.0f) {
+                midi_send_ctrlchan(MIDISEND_CC_SPEED, (int)((actual_speed/ESC_THROTTLE_MAX) * 127));
+            } else {
+                midi_send_ctrlchan(MIDISEND_CC_SPEED, 127);
+            }
+            midi_send_ctrlchan(MIDISEND_CC_PRESSURE, (int)(npa_value / 512) - 1);
+            if (sdp_value > 0.0f) {
+                midi_send_ctrlchan(MIDISEND_CC_VELO, (int)(sdp_value / 4));
+            } else {
+                midi_send_ctrlchan(MIDISEND_CC_VELO, 0);
+            }
         }
     }
     return 0;
