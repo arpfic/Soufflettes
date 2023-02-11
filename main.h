@@ -15,7 +15,7 @@
 
 #define AUTO_MODE                         0
 #define AUTO_RESET                        0
-#define PC_DEBUG_ON                       1
+#define PC_DEBUG_ON                       0
 #define SSD_I2C_ADDRESS                   0x78
 #define SSD1306_ON                        1
 #define MAX_BUFFER                        129
@@ -30,18 +30,23 @@
 #define SDP_REFRESH_TIME                  0.05f
 #define AUTO_MODE_REFRESH_TIME            0.005f
 #define AUTO_MODE_REFRESH_STEPS           0.005f
-#define ESC_SPEED_STEP                    0.15f
+#define ESC_SPEED_STEP                    0.13f
 #define WARNING_PRESSURE                  11000
 #define WARNING_DIFF_PRESSURE             3.00f
+#define USER_BUTTON                       PA_1
+#define BUTTON_DEBOUNCE                   0.2f
 /* -----------------------------------------------------------------------------
  * MIDI stuf
  */
 #define MIDI_UART_TX                      PA_9
 #define MIDI_UART_RX                      PA_10
+//#define MIDI_UART_TX                      PA_2
+//#define MIDI_UART_RX                      PA_3
 #define MIDIMAIL_SIZE                     64
 #define MIDI_MAX_MSG_LENGTH               4 // Max message size. SysEx can be up to 65536.
 #define CONT_CTRL                         176
 #define NVSTORE_MIDI_CHAN_KEY             1
+#define NVSTORE_MIDI_CHAN_FIRST_STORE     1
 
 void update_info_screen(char* info);
 void update_esc_screen(float esc_speed, int npa_value, float sdp_value);
@@ -51,9 +56,33 @@ void update_pc_debug(float esc_speed, int npa_value, float sdp_value);
 bool test_esc(int npa_value, float sdp_value);
 // Callback for MIDI RX
 void on_rx_interrupt();
+void pb_hit_IN_interrupt ();
+void pb_hit_OUT_interrupt ();
+
 // Regrouping MIDI RX task in a Thread
+// MIDI Serial & Thread and Ticker for working with different packet lengths
+static RawSerial midi_din(MIDI_UART_TX, MIDI_UART_RX, 61250);
 void midi_task();
 void midi_send_contctrl(char cc_number, char value);
+Thread midiTask;
+
+// MIDI --------------------------
+/* Mailbox of MIDI Packets */
+typedef struct {
+    uint8_t    midiPacket[MIDI_MAX_MSG_LENGTH]; /* AD result of measured voltage */
+    int        midiPacketlenght = 0;
+} midiPacket_t;
+Mail<midiPacket_t, MIDIMAIL_SIZE>  rx_midiPacket_box;
+midiPacket_t                       *rx_midi_outbox;
+int                                packetbox_full = 0;
+int                                rx_midi_Statusbyte = 0;
+/* -- debug v2*/
+int debug_midicount = 0;
+int debug_midi_value = 0;
+// other
+volatile int            rx_idx = 0;
+uint8_t                 rx_buffer[MIDI_MAX_MSG_LENGTH + 1];
+//--------------------------------
 
 void print_return_code(int rc, int expected_rc)
 {

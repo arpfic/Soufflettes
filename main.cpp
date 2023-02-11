@@ -1,3 +1,4 @@
+#include "DigitalIn.h"
 #include "mbed.h"
 #include "main.h"
 
@@ -13,6 +14,7 @@ AnalogIn                                  adc_temp(ADC_TEMP);
 AnalogIn                                  adc_vref(ADC_VREF);
 //DSHOT150                                  soufflette(PE_9);
 DigitalOut                                led(PB_3);
+InterruptIn                               push_button(PA_1);
 
 // GLOBAL VARIABLES
 /* ========================================================================= */
@@ -30,36 +32,18 @@ Ticker PotsampleReady;
 Ticker NpasampleReady;
 Ticker SdpsampleReady;
 Ticker AutoModeReady;
+Timer PbInterruptReady;
+
 bool screen_refresh_timer_ready;
 bool pot_sample_timer_ready;
 bool npa_sample_timer_ready;
 bool sdp_sample_timer_ready;
 bool auto_mode_ready;
+bool set_auto_mode;
 int  warning_count_before_reset;
 float actual_speed;
 float auto_mode;
 char buffer[MAX_BUFFER];
-
-// MIDI Serial & Thread and Ticker for working with different packet lengths
-static RawSerial midi_din(MIDI_UART_TX, MIDI_UART_RX);
-Thread midiTask;
-
-// MIDI --------------------------
-/* Mailbox of MIDI Packets */
-typedef struct {
-    uint8_t    midiPacket[MIDI_MAX_MSG_LENGTH]; /* AD result of measured voltage */
-    int        midiPacketlenght = 0;
-} midiPacket_t;
-Mail<midiPacket_t, MIDIMAIL_SIZE>  rx_midiPacket_box;
-midiPacket_t                       *rx_midi_outbox;
-int                                packetbox_full = 0;
-int                                rx_midi_Statusbyte = 0;
-/* -- debug v2*/
-int debug_midicount = 0;
-// other
-volatile int            rx_idx = 0;
-uint8_t                 rx_buffer[MIDI_MAX_MSG_LENGTH + 1];
-//--------------------------------
 
 // MAIN FUNCTIONS
 /* ========================================================================= */
@@ -138,6 +122,7 @@ void on_rx_interrupt() {
 
 void midi_task() {
     midi_din.baud(31250);
+    midi_din.format(8, SerialBase::None, 1);
 
     // create the first packet
     rx_midi_outbox = rx_midiPacket_box.alloc();
@@ -174,42 +159,33 @@ void midi_task() {
 
             MIDIMessage MIDIMsg;
             MIDIMsg.from_raw(midi_inbox->midiPacket, midi_inbox->midiPacketlenght);
-/*
-            if (MIDIMsg.channel() == MIDI_CHANNEL_A - 1) {
+
+            if (MIDIMsg.channel() == nvstore_midi_value - 1) {
                 switch (MIDIMsg.type()) {
                     case MIDIMessage::NoteOffType:
-                        menu_main_midi_noteOfmidi_dinf_chA(MIDIMsg.key());
                         break;
                     case MIDIMessage::NoteOnType:
-                        if (MIDIMsg.length > 3) {
-                            if (MIDIMsg.velocity() > 0) {
-                                menu_main_midi_noteOn_chA(MIDIMsg.key(), MIDIMsg.velocity());
-                            } else {
-                                menu_main_midi_noteOff_chA(MIDIMsg.key());
-                            }
-                        } else {
-                            menu_main_midi_noteOn_chA_min(MIDIMsg.key());
-                        }
+                        debug_midi_value = MIDIMsg.key();
                         break;
                     case MIDIMessage::AllNotesOffType:
-                        menu_main_midi_allnoteOff();
                         break;
                     case MIDIMessage::ResetAllControllersType:
-                        menu_tools_softreset();
                         break;
                     case MIDIMessage::ControlChangeType:
+                        if (MIDIMsg.controller() == 2) {
+                            debug_midi_value = MIDIMsg.value();
+                        }
                         break;
                     case MIDIMessage::PitchWheelType:
                         break;
                     case MIDIMessage::SysExType:
                         break;
                     case MIDIMessage::ErrorType:
-                        led_red = !led_red;
                         break;
                     default:
                         break;
                 }
-            }*/
+            }
             rx_midiPacket_box.free(midi_inbox);
             packetbox_full = 0;
         }
@@ -242,6 +218,19 @@ void auto_mode_timer() {
     auto_mode_ready = true;
 }
 
+void pb_hit_IN_interrupt (void) {
+    PbInterruptReady.reset();
+    PbInterruptReady.start();
+    //set_auto_mode = !set_auto_mode;
+}
+
+void pb_hit_OUT_interrupt (void) {
+    if (PbInterruptReady.read() > BUTTON_DEBOUNCE){
+        set_auto_mode = !set_auto_mode;
+    }
+    PbInterruptReady.stop();
+}
+
 bool test_esc(int npa_value, float sdp_value) {
     if(fabs(sdp_value) < WARNING_DIFF_PRESSURE && npa_value < WARNING_PRESSURE){
 #if AUTO_RESET == 1
@@ -257,6 +246,9 @@ bool test_esc(int npa_value, float sdp_value) {
 }
 
 int main() {
+    push_button.mode(PullUp);
+    set_auto_mode = false;
+
     /* GET NVSTORE INSTANCE
      * NVStore is a sigleton, get its instance
      */
@@ -306,6 +298,7 @@ int main() {
     auto_mode = THROTTLE_START;
     memset(buffer, 0, sizeof(buffer));
 
+    display.setRotation(2);
     display.clearDisplay();
     display.setTextCursor(0,0);
     display.printf ("-- SOUFFLETTE --");
@@ -339,6 +332,9 @@ int main() {
     SdpsampleReady.attach(&sdp_sample_timer, SDP_REFRESH_TIME);
     AutoModeReady.attach(&auto_mode_timer, AUTO_MODE_REFRESH_TIME);
 
+    push_button.rise(&pb_hit_IN_interrupt);
+    push_button.fall(&pb_hit_OUT_interrupt);
+
     // ENTERING LOOP, BUT CLEAN BEFORE :)
     display.clearDisplay();
 
@@ -351,7 +347,7 @@ int main() {
         if (pot_sample_timer_ready){
             pot_value = pot.read()*(1.0f - THROTTLE_MIN) + THROTTLE_MIN;
             if (pot_value > 1.0f) pot_value = 1.0f;
-            if (!AUTO_MODE) update_esc(pot_value);
+            if (!set_auto_mode) update_esc(pot_value);
             pot_sample_timer_ready = false;
         }
         if (npa_sample_timer_ready){
@@ -366,7 +362,7 @@ int main() {
             if(PC_DEBUG_ON == 1)
             update_pc_debug(pot_value, npa_value, sdp_value);
         }
-        if (AUTO_MODE && auto_mode_ready){
+        if (set_auto_mode && auto_mode_ready){
             if (npa_value > pot.read_u16()){
                 auto_mode = auto_mode - AUTO_MODE_REFRESH_STEPS ;
                 if (auto_mode <= THROTTLE_MIN) auto_mode = THROTTLE_MIN;
@@ -417,13 +413,17 @@ void update_esc_screen(float esc_speed, int npa_value, float sdp_value){
     display.clearDisplay();
     display.setTextCursor(20,0);
     if(test_esc(npa_value, sdp_value)) {
-        display.printf ("-- SOUFFLETTE --");
+        if (set_auto_mode){
+            display.printf ("-- SOUFFLAUTO --");
+        } else {
+            display.printf ("-- SOUFFLETTE --");
+        }
     } else {
         display.printf ("WARN: ESC OFF ??");        
     }
     display.setTextCursor(0,15);
     sprintf(buffer, "MIDI            ");
-    sprintf(buffer + strlen(buffer), "%05d", debug_midicount);
+    sprintf(buffer + strlen(buffer), "%05d", debug_midi_value);
     //    sprintf(buffer, "TEMP            ");
     //sprintf(buffer + strlen(buffer), "%05f", (adc_temp.read()*100));
     display.printf(buffer);
