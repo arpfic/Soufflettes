@@ -383,17 +383,7 @@ int main() {
             auto_mode_ready = false;
         }
         if (midi_send_speed_ready){
-            if (actual_speed < 1.0f) {
-                midi_send_ctrlchan(MIDISEND_CC_SPEED, (int)((actual_speed/ESC_THROTTLE_MAX) * 127));
-            } else {
-                midi_send_ctrlchan(MIDISEND_CC_SPEED, 127);
-            }
-            midi_send_ctrlchan(MIDISEND_CC_PRESSURE, (int)(npa_value / 512) - 1);
-            if (sdp_value > 0.0f) {
-                midi_send_ctrlchan(MIDISEND_CC_VELO, (int)(sdp_value / 4));
-            } else {
-                midi_send_ctrlchan(MIDISEND_CC_VELO, 0);
-            }
+            update_midi_infos(npa_value, sdp_value);
         }
     }
     return 0;
@@ -487,4 +477,18 @@ void update_pc_debug(float esc_speed, int npa_value, float sdp_value){
     sprintf(buffer + strlen(buffer), "| SPEED = ");
     sprintf(buffer + strlen(buffer), "%03d\n", (int)(esc_speed*100.0));
     printf(buffer);
+}
+
+void update_midi_infos(int npa_value, float sdp_value){
+    if (actual_speed < 1.0f) {
+        midi_send_ctrlchan(MIDISEND_CC_SPEED, (int)((actual_speed/ESC_THROTTLE_MAX) * 127));
+    } else {
+        midi_send_ctrlchan(MIDISEND_CC_SPEED, 127);
+    }
+    midi_send_ctrlchan(MIDISEND_CC_PRESSURE, (int)(npa_value / 512) - 1);
+    if (sdp_value > 0.0f) {
+        midi_send_ctrlchan(MIDISEND_CC_VELO, (int)(sdp_value / 4));
+    } else {
+        midi_send_ctrlchan(MIDISEND_CC_VELO, 0);
+    }
 }

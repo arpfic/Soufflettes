@@ -57,6 +57,7 @@ void update_esc_screen(float esc_speed, int npa_value, float sdp_value);
 void init_esc(float speed);
 void update_esc(float speed);
 void update_pc_debug(float esc_speed, int npa_value, float sdp_value);
+void update_midi_infos(int npa_value, float sdp_value);
 bool test_esc(int npa_value, float sdp_value);
 // Callback for MIDI RX
 void on_rx_interrupt();
