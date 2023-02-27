@@ -43,6 +43,7 @@ bool sdp_sample_timer_ready;
 bool auto_mode_ready;
 bool midi_send_speed_ready;
 bool set_auto_mode;
+bool set_midi_mode;
 int  warning_count_before_reset;
 float actual_speed;
 float auto_mode;
@@ -168,15 +169,23 @@ void midi_task() {
                     case MIDIMessage::NoteOffType:
                         break;
                     case MIDIMessage::NoteOnType:
-                        debug_midi_value = MIDIMsg.key();
+                        set_midi_mode = true;
+                        if (!set_auto_mode) {
+                            update_esc(((MIDIMsg.key() + 1) / 128.0) * (1.0f - THROTTLE_MIN) + THROTTLE_MIN);
+                        }
+                        midi_value = MIDIMsg.key();
                         break;
                     case MIDIMessage::AllNotesOffType:
                         break;
                     case MIDIMessage::ResetAllControllersType:
                         break;
                     case MIDIMessage::ControlChangeType:
-                        if (MIDIMsg.controller() == 2) {
-                            debug_midi_value = MIDIMsg.value();
+                        if (MIDIMsg.controller() == MIDIRECEIVE_CC_SPEED) {
+                            set_midi_mode = true;
+                            if (!set_auto_mode) {
+                                update_esc(((MIDIMsg.value() + 1) / 128.0) * (1.0f - THROTTLE_MIN) + THROTTLE_MIN);
+                            }
+                            midi_value = MIDIMsg.value();
                         }
                         break;
                     case MIDIMessage::PitchWheelType:
@@ -255,6 +264,7 @@ bool test_esc(int npa_value, float sdp_value) {
 int main() {
     push_button.mode(PullUp);
     set_auto_mode = false;
+    set_midi_mode = false;
 
     /* GET NVSTORE INSTANCE
      * NVStore is a sigleton, get its instance
@@ -285,13 +295,23 @@ int main() {
     
     // First time we have to set to default chan
     if (rc == NVSTORE_SUCCESS && (nvstore_midi_value < 0 || nvstore_midi_value > 16)) {
-        nvstore_midi_value = 1;
+        nvstore_midi_value = NVSTORE_MIDI_CHAN_FIRST_STORE;
         rc = nvstore.set(NVSTORE_MIDI_CHAN_KEY, sizeof(nvstore_midi_value), &nvstore_midi_value);
         if(PC_DEBUG_ON == 1) {
             printf("Set key %d to nvstore_midi_value %ld. ", NVSTORE_MIDI_CHAN_KEY, nvstore_midi_value);
             print_return_code(rc, NVSTORE_SUCCESS);
         }
     }
+
+    if(NVSTORE_MIDI_CHAN_FORCE_STORE == 1) {
+        nvstore_midi_value = NVSTORE_MIDI_CHAN_FIRST_STORE;
+        rc = nvstore.set(NVSTORE_MIDI_CHAN_KEY, sizeof(nvstore_midi_value), &nvstore_midi_value);
+        if(PC_DEBUG_ON == 1) {
+            printf("Set key %d to nvstore_midi_value %ld. ", NVSTORE_MIDI_CHAN_KEY, nvstore_midi_value);
+            print_return_code(rc, NVSTORE_SUCCESS);
+        }
+    }
+
 
     if(PC_DEBUG_ON == 1) {
         printf("Get MIDI CHAN on key %d. nvstore_midi_value is %ld. ", NVSTORE_MIDI_CHAN_KEY, nvstore_midi_value);
@@ -355,7 +375,7 @@ int main() {
         if (pot_sample_timer_ready){
             pot_value = pot.read()*(1.0f - THROTTLE_MIN) + THROTTLE_MIN;
             if (pot_value > 1.0f) pot_value = 1.0f;
-            if (!set_auto_mode) update_esc(pot_value);
+            if (!set_auto_mode && !set_midi_mode) update_esc(pot_value);
             pot_sample_timer_ready = false;
         }
         if (npa_sample_timer_ready){
@@ -371,14 +391,26 @@ int main() {
             update_pc_debug(pot_value, npa_value, sdp_value);
         }
         if (set_auto_mode && auto_mode_ready){
-            if (npa_value > pot.read_u16()){
-                auto_mode = auto_mode - AUTO_MODE_REFRESH_STEPS ;
-                if (auto_mode <= THROTTLE_MIN) auto_mode = THROTTLE_MIN;
-                update_esc(auto_mode);
+            if (!set_midi_mode){
+                if (npa_value > pot.read_u16()){
+                    auto_mode = auto_mode - AUTO_MODE_REFRESH_STEPS ;
+                    if (auto_mode <= THROTTLE_MIN) auto_mode = THROTTLE_MIN;
+                    update_esc(auto_mode);
+                } else {
+                    auto_mode = auto_mode + AUTO_MODE_REFRESH_STEPS;
+                    if (auto_mode > 1.0f) auto_mode = 1.0f;
+                    update_esc(auto_mode);
+                }
             } else {
-                auto_mode = auto_mode + AUTO_MODE_REFRESH_STEPS;
-                if (auto_mode > 1.0f) auto_mode = 1.0f;
-                update_esc(auto_mode);
+                if (npa_value > (midi_value * 512)){
+                    auto_mode = auto_mode - AUTO_MODE_REFRESH_STEPS ;
+                    if (auto_mode <= THROTTLE_MIN) auto_mode = THROTTLE_MIN;
+                    update_esc(auto_mode);
+                } else {
+                    auto_mode = auto_mode + AUTO_MODE_REFRESH_STEPS;
+                    if (auto_mode > 1.0f) auto_mode = 1.0f;
+                    update_esc(auto_mode);
+                }
             }
             auto_mode_ready = false;
         }
@@ -426,6 +458,8 @@ void update_esc_screen(float esc_speed, int npa_value, float sdp_value){
     if(test_esc(npa_value, sdp_value)) {
         if (set_auto_mode){
             display.printf ("-- SOUFFLAUTO --");
+        } else if (set_midi_mode){
+            display.printf ("-- SOUFFLMIDI --");
         } else {
             display.printf ("-- SOUFFLETTE --");
         }
@@ -433,8 +467,9 @@ void update_esc_screen(float esc_speed, int npa_value, float sdp_value){
         display.printf ("WARN: ESC OFF ??");        
     }
     display.setTextCursor(0,15);
-    sprintf(buffer, "MIDI            ");
-    sprintf(buffer + strlen(buffer), "%05d", debug_midi_value);
+    sprintf(buffer, "MIDI       ch");
+    sprintf(buffer + strlen(buffer), "%01d cc ", nvstore_midi_value);
+    sprintf(buffer + strlen(buffer), "%03d", midi_value);
     //    sprintf(buffer, "TEMP            ");
     //sprintf(buffer + strlen(buffer), "%05f", (adc_temp.read()*100));
     display.printf(buffer);

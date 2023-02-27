@@ -15,6 +15,7 @@
 
 #define AUTO_MODE                         0
 #define AUTO_RESET                        0
+#define NVSTORE_MIDI_CHAN_FORCE_STORE     0
 #define PC_DEBUG_ON                       0
 #define SSD_I2C_ADDRESS                   0x78
 #define SSD1306_ON                        1
@@ -46,7 +47,8 @@
 #define MIDI_MAX_MSG_LENGTH               4 // Max message size. SysEx can be up to 65536.
 #define CONT_CTRL                         176
 #define NVSTORE_MIDI_CHAN_KEY             1
-#define NVSTORE_MIDI_CHAN_FIRST_STORE     1
+#define NVSTORE_MIDI_CHAN_FIRST_STORE     6
+#define MIDIRECEIVE_CC_SPEED              4 
 #define MIDISEND_REFRESH_TIME             0.25f
 #define MIDISEND_CC_SPEED                 3
 #define MIDISEND_CC_PRESSURE              4
@@ -83,7 +85,7 @@ int                                packetbox_full = 0;
 int                                rx_midi_Statusbyte = 0;
 /* -- debug v2*/
 int debug_midicount = 0;
-int debug_midi_value = 0;
+int midi_value = 0;
 // other
 volatile int            rx_idx = 0;
 uint8_t                 rx_buffer[MIDI_MAX_MSG_LENGTH + 1];
